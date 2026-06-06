@@ -96,7 +96,85 @@ export const analyses = sqliteTable("analyses", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+/* ------------------------ attack-path graph (AP-1) ------------------------- */
+// All keyed per scan_id with cascade delete + a (scan_id) index, mirroring the
+// findings/analyses pattern so the diff engine can extend to attack paths later.
+
+export const graphNodes = sqliteTable(
+  "graph_nodes",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    scanId: text("scan_id")
+      .notNull()
+      .references(() => scans.id, { onDelete: "cascade" }),
+    /** Stable key: normalized type + resource id. */
+    nodeKey: text("node_key").notNull(),
+    type: text("type").notNull(),
+    name: text("name"),
+    region: text("region"),
+    accountId: text("account_id"),
+    /** Capability tags derived from FAILED findings, e.g. ["publicly_accessible"]. */
+    capabilities: text("capabilities", { mode: "json" })
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    source: text("source", { enum: ["prowler", "pmapper"] })
+      .notNull()
+      .default("prowler"),
+  },
+  (t) => [index("graph_nodes_scan_idx").on(t.scanId)],
+);
+
+export const graphEdges = sqliteTable(
+  "graph_edges",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    scanId: text("scan_id")
+      .notNull()
+      .references(() => scans.id, { onDelete: "cascade" }),
+    srcKey: text("src_key").notNull(),
+    dstKey: text("dst_key").notNull(),
+    relation: text("relation", {
+      enum: ["uses_role", "in_security_group", "can_assume", "can_access"],
+    }).notNull(),
+    /** Which finding / pmapper fact produced this edge. */
+    evidence: text("evidence", { mode: "json" }).$type<Record<string, unknown>>(),
+    source: text("source", { enum: ["prowler", "pmapper"] })
+      .notNull()
+      .default("prowler"),
+  },
+  (t) => [index("graph_edges_scan_idx").on(t.scanId)],
+);
+
+export const attackPaths = sqliteTable(
+  "attack_paths",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    scanId: text("scan_id")
+      .notNull()
+      .references(() => scans.id, { onDelete: "cascade" }),
+    ruleId: text("rule_id").notNull(),
+    title: text("title"),
+    severity: text("severity", {
+      enum: ["critical", "high", "medium", "low"],
+    }).notNull(),
+    entryKey: text("entry_key"),
+    targetKey: text("target_key"),
+    /** Ordered node_keys + edges making up the chain. */
+    hops: text("hops", { mode: "json" }).$type<unknown>(),
+    capabilities: text("capabilities", { mode: "json" }).$type<string[]>(),
+    /** Filled by the LLM narration step (AP-3). */
+    narrative: text("narrative", { mode: "json" }).$type<unknown>(),
+    confidence: text("confidence", { enum: ["high", "medium", "low"] }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("attack_paths_scan_idx").on(t.scanId)],
+);
+
 export type EnvironmentRow = typeof environments.$inferSelect;
 export type ScanRow = typeof scans.$inferSelect;
 export type FindingRow = typeof findings.$inferSelect;
 export type AnalysisRow = typeof analyses.$inferSelect;
+export type GraphNodeRow = typeof graphNodes.$inferSelect;
+export type GraphEdgeRow = typeof graphEdges.$inferSelect;
+export type AttackPathRow = typeof attackPaths.$inferSelect;

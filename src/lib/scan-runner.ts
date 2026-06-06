@@ -17,11 +17,15 @@ import { ensureAnalysis } from "@/lib/analysis-jobs";
 import { normalizeFindings, summarizeFindings } from "@/lib/ocsf";
 import { runProwlerScan, type ProwlerScanOptions } from "@/lib/prowler";
 import { testAssumeRole, type AssumeRoleResult } from "@/lib/aws-test";
+import { buildGraph } from "@/lib/graph/tagging";
+import { buildAttackPaths } from "@/lib/graph/paths";
 import {
   createScan,
   getEnvironment,
   getOrCreateDefaultEnvironment,
+  saveAttackPaths,
   saveFindings,
+  saveGraph,
   updateScanStatus,
   type Environment,
 } from "@/lib/db/repository";
@@ -115,6 +119,28 @@ export async function executeScan(
     const { findings, dropped } = normalizeFindings(parsed);
     const summary = summarizeFindings(findings);
     saveFindings(scanId, findings);
+
+    // Build the attack-path graph from FAILED findings (AP-1) and the toxic-
+    // combination paths over it (AP-2). Both are pure + deterministic and run
+    // independently of the LLM analysis; best-effort — a graph/path error must
+    // never fail an otherwise-successful scan. Narrative is filled later (AP-3).
+    try {
+      const failed = findings.filter((f) => f.status === "fail");
+      const graph = buildGraph(failed);
+      saveGraph(scanId, graph.nodes, graph.edges);
+      const paths = buildAttackPaths(graph.nodes, graph.edges);
+      saveAttackPaths(scanId, paths);
+      console.log(
+        `[scan ${scanId}] graph: ${graph.nodes.length} node(s), ${graph.edges.length} edge(s); ` +
+          `${paths.length} attack path(s).`,
+      );
+    } catch (graphErr: unknown) {
+      console.warn(
+        `[scan ${scanId}] graph/paths build skipped:`,
+        graphErr instanceof Error ? graphErr.message : String(graphErr),
+      );
+    }
+
     updateScanStatus(scanId, "done", { summary });
     console.log(
       `[scan ${scanId}] done: ${findings.length} findings (${dropped} dropped), ` +

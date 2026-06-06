@@ -11,6 +11,7 @@ import {
   CheckCircleIcon,
   ListIcon,
   PlusIcon,
+  RouteIcon,
 } from "@/components/icons";
 import { Card, CardHeader, SeverityBadge, Skeleton } from "@/components/ui/primitives";
 import { EmptyState, ErrorState } from "@/components/states";
@@ -21,6 +22,7 @@ import {
   type ScanHistoryItem,
 } from "@/lib/api-client";
 import type { Finding } from "@/lib/severity";
+import type { AttackPathRef } from "@/lib/diff";
 
 export function ScanDiff({ completed }: { completed: ScanHistoryItem[] }) {
   const hasPair = completed.length >= 2;
@@ -116,9 +118,94 @@ export function ScanDiff({ completed }: { completed: ScanHistoryItem[] }) {
               empty="Nothing carried over."
             />
           </div>
+          {result.pathDiff &&
+            (result.pathDiff.introduced.length > 0 ||
+              result.pathDiff.resolved.length > 0) && (
+              <PathDiffSection pathDiff={result.pathDiff} />
+            )}
         </>
       )}
     </div>
+  );
+}
+
+function PathDiffSection({
+  pathDiff,
+}: {
+  pathDiff: NonNullable<ScanDiffResult["pathDiff"]>;
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-fg">
+        <RouteIcon className="size-4 text-muted" />
+        Attack path changes
+      </h3>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PathGroup
+          tone="bad"
+          title="New attack paths"
+          paths={pathDiff.introduced}
+          empty="No new attack paths."
+        />
+        <PathGroup
+          tone="good"
+          title="Resolved attack paths"
+          paths={pathDiff.resolved}
+          empty="No attack paths resolved."
+        />
+      </div>
+    </div>
+  );
+}
+
+function PathGroup({
+  tone,
+  title,
+  paths,
+  empty,
+}: {
+  tone: "bad" | "good";
+  title: string;
+  paths: AttackPathRef[];
+  empty: string;
+}) {
+  const icon =
+    tone === "bad" ? (
+      <PlusIcon className="size-4 text-critical" />
+    ) : (
+      <CheckCircleIcon className="size-4 text-ok" />
+    );
+  return (
+    <Card className="flex flex-col">
+      <CardHeader
+        title={
+          <span className="flex items-center gap-2">
+            {title}
+            <span className="tnum rounded-full bg-surface-3 px-1.5 text-[11px] text-muted">
+              {paths.length}
+            </span>
+          </span>
+        }
+        icon={icon}
+      />
+      <div className="flex-1 p-3">
+        {paths.length === 0 ? (
+          <p className="px-2 py-6 text-center text-xs text-faint">{empty}</p>
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {paths.map((p) => (
+              <li
+                key={`${p.ruleId}-${p.entryKey}-${p.targetKey}`}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-surface-2/40 p-2.5"
+              >
+                <span className="min-w-0 truncate text-sm text-fg">{p.title}</span>
+                <SeverityBadge severity={p.severity} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
   );
 }
 

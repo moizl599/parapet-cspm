@@ -26,8 +26,14 @@ import {
   getFindingsForScan,
   saveAnalysis,
   getAnalysisForScan,
+  saveGraph,
+  getGraph,
+  saveAttackPaths,
+  getAttackPaths,
 } from "@/lib/db/repository";
 import type { Finding } from "@/lib/severity";
+import type { GraphEdge, GraphNode } from "@/lib/graph/tagging";
+import type { AttackPath } from "@/lib/graph/paths";
 
 before(() => runMigrations());
 after(() => {
@@ -201,15 +207,100 @@ test("partial analysis round-trips its partial metadata", () => {
   assert.equal(analysis?.totalGroups, 6);
 });
 
-test("deleting an environment cascades to scans, findings, analyses", () => {
+const SAMPLE_NODES: GraphNode[] = [
+  {
+    nodeKey: "s3_bucket:arn:aws:s3:::demo",
+    type: "s3_bucket",
+    name: "demo",
+    region: "us-east-1",
+    accountId: "111122223333",
+    capabilities: ["publicly_accessible", "holds_data"],
+    source: "prowler",
+  },
+  {
+    nodeKey: "iam_role:arn:aws:iam::111122223333:role/app",
+    type: "iam_role",
+    name: "app",
+    region: "us-east-1",
+    accountId: "111122223333",
+    capabilities: [],
+    source: "prowler",
+  },
+];
+const SAMPLE_EDGES: GraphEdge[] = [
+  {
+    srcKey: "ec2_instance:i-1",
+    dstKey: "iam_role:arn:aws:iam::111122223333:role/app",
+    relation: "uses_role",
+    evidence: { checkId: "ec2_instance_imdsv2_enabled", title: "IMDSv2" },
+    source: "prowler",
+  },
+];
+
+test("graph save + read round-trips nodes, capabilities, and edges", () => {
+  const env = createEnvironment({ name: "GraphEnv" });
+  const scan = createScan(env.id);
+  saveGraph(scan.id, SAMPLE_NODES, SAMPLE_EDGES);
+
+  const graph = getGraph(scan.id);
+  assert.equal(graph.nodes.length, 2);
+  assert.equal(graph.edges.length, 1);
+  const bucket = graph.nodes.find((n) => n.nodeKey.includes("demo"));
+  assert.deepEqual(bucket?.capabilities, ["publicly_accessible", "holds_data"]);
+  assert.equal(graph.edges[0].relation, "uses_role");
+  assert.equal(graph.edges[0].evidence?.checkId, "ec2_instance_imdsv2_enabled");
+
+  // Idempotent: saving again replaces rather than appends.
+  saveGraph(scan.id, SAMPLE_NODES, SAMPLE_EDGES);
+  const again = getGraph(scan.id);
+  assert.equal(again.nodes.length, 2);
+  assert.equal(again.edges.length, 1);
+});
+
+const SAMPLE_PATHS: AttackPath[] = [
+  {
+    ruleId: "public-data-exposure",
+    title: "Public data store: demo",
+    severity: "critical",
+    entryKey: "s3_bucket:arn:aws:s3:::demo",
+    targetKey: "s3_bucket:arn:aws:s3:::demo",
+    hops: { nodes: ["s3_bucket:arn:aws:s3:::demo"], edges: [] },
+    capabilities: ["publicly_accessible", "holds_data"],
+    confidence: "medium",
+  },
+];
+
+test("attack paths save + read; narrative left null for AP-3", () => {
+  const env = createEnvironment({ name: "PathsEnv" });
+  const scan = createScan(env.id);
+  saveAttackPaths(scan.id, SAMPLE_PATHS);
+
+  const rows = getAttackPaths(scan.id);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].ruleId, "public-data-exposure");
+  assert.equal(rows[0].severity, "critical");
+  assert.equal(rows[0].confidence, "medium");
+  assert.equal(rows[0].narrative, null);
+
+  // Idempotent: re-saving replaces rather than appends.
+  saveAttackPaths(scan.id, SAMPLE_PATHS);
+  assert.equal(getAttackPaths(scan.id).length, 1);
+});
+
+test("deleting an environment cascades to scans, findings, analyses, graph, paths", () => {
   const env = createEnvironment({ name: "Cascade" });
   const scan = createScan(env.id);
   saveFindings(scan.id, SAMPLE_FINDINGS);
   saveAnalysis(scan.id, SAMPLE_ANALYSIS, "llama3.1:8b");
+  saveGraph(scan.id, SAMPLE_NODES, SAMPLE_EDGES);
+  saveAttackPaths(scan.id, SAMPLE_PATHS);
 
   deleteEnvironment(env.id);
 
   assert.equal(getScan(scan.id), null);
   assert.equal(getFindingsForScan(scan.id).length, 0);
   assert.equal(getAnalysisForScan(scan.id), null);
+  assert.equal(getGraph(scan.id).nodes.length, 0);
+  assert.equal(getGraph(scan.id).edges.length, 0);
+  assert.equal(getAttackPaths(scan.id).length, 0);
 });

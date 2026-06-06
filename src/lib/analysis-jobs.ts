@@ -12,6 +12,11 @@
 import "server-only";
 
 import { analyzeFindings, type Analysis } from "@/lib/analyze";
+import {
+  narrateAttackPaths,
+  plannedNarrationCount,
+  type NarrateDeps,
+} from "@/lib/graph/narrate";
 import { getOllamaConfig } from "@/lib/config";
 import { summarizeFindings, type FindingsSummary } from "@/lib/ocsf";
 import {
@@ -39,6 +44,10 @@ interface Job {
 export interface AnalysisJobDeps {
   analyze?: typeof analyzeFindings;
   model?: string;
+  /** Override attack-path narration (AP-3); defaults to the real LLM path. */
+  narrate?: typeof narrateAttackPaths;
+  /** Injected Ollama streamer for narration (passed through to `narrate`). */
+  narrateDeps?: NarrateDeps;
 }
 
 const jobs = new Map<string, Job>();
@@ -89,6 +98,7 @@ export function startAnalysis(
   if (existing) return existing.promise;
 
   const analyze = deps.analyze ?? analyzeFindings;
+  const narrate = deps.narrate ?? narrateAttackPaths;
   const job: Job = { listeners: new Set(), promise: Promise.resolve() };
   jobs.set(scanId, job);
 
@@ -104,15 +114,48 @@ export function startAnalysis(
       const summary =
         (scan?.summary as FindingsSummary | null) ?? summarizeFindings(findings);
 
+      // Reserve progress slots for attack-path narration so the bar stays
+      // monotonic across both phases (findings chunks, then narrated paths).
+      const narrationTotal = plannedNarrationCount(scanId);
+      let chunkTotal = 0;
+
       const analysis = await analyze(findings, summary, {
         onToken: (value) => broadcast(scanId, { type: "token", value }),
         onProgress: (completed, total) => {
-          updateAnalysisProgress(scanId, `${completed}/${total}`);
-          broadcast(scanId, { type: "progress", completed, total });
+          chunkTotal = total;
+          const grand = total + narrationTotal;
+          updateAnalysisProgress(scanId, `${completed}/${grand}`);
+          broadcast(scanId, { type: "progress", completed, total: grand });
         },
       });
 
       saveAnalysis(scanId, analysis, deps.model ?? getOllamaConfig().model);
+
+      // AP-3: narrate the top attack paths (grounded), continuing the same
+      // progress. Best-effort — narration never fails the analysis.
+      if (narrationTotal > 0) {
+        try {
+          await narrate(
+            scanId,
+            {
+              onToken: (value) => broadcast(scanId, { type: "token", value }),
+              onProgress: (done, total) => {
+                const completed = chunkTotal + done;
+                const grand = chunkTotal + total;
+                updateAnalysisProgress(scanId, `${completed}/${grand}`);
+                broadcast(scanId, { type: "progress", completed, total: grand });
+              },
+            },
+            deps.narrateDeps ?? {},
+          );
+        } catch (narrateErr: unknown) {
+          console.warn(
+            `[analysis-job ${scanId}] path narration skipped:`,
+            narrateErr instanceof Error ? narrateErr.message : String(narrateErr),
+          );
+        }
+      }
+
       updateAnalysisStatus(scanId, "done", { finishedAt: new Date() });
       broadcast(scanId, { type: "done", analysis });
       console.log(`[analysis-job ${scanId}] done.`);

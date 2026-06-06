@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { diffScans, findingKey, type ScanSnapshot } from "./diff.ts";
+import {
+  diffScans,
+  diffAttackPaths,
+  attackPathKey,
+  findingKey,
+  type ScanSnapshot,
+  type AttackPathRef,
+} from "./diff.ts";
 import type { Finding, Severity } from "./severity.ts";
 
 /** Minimal Finding factory — only the fields diffing reads matter. */
@@ -214,4 +221,63 @@ test("summary delta reports per-severity change", () => {
   assert.equal(diff.summaryDelta.totalFailedDelta, 1);
   assert.equal(diff.summaryDelta.bySeverityDelta.critical, 1);
   assert.equal(diff.summaryDelta.bySeverityDelta.high, 0);
+});
+
+/* ------------------------------ attack-path diff -------------------------- */
+
+function path(
+  ruleId: string,
+  entryKey: string,
+  targetKey: string,
+  severity: Severity = "high",
+): AttackPathRef {
+  return { ruleId, entryKey, targetKey, severity, title: `${ruleId} ${entryKey}` };
+}
+
+test("attackPathKey is rule + entry + target", () => {
+  assert.equal(
+    attackPathKey(path("public-data-exposure", "s3:a", "s3:a")),
+    attackPathKey(path("public-data-exposure", "s3:a", "s3:a", "critical")),
+  );
+});
+
+test("attack-path diff classifies introduced / resolved / unchanged", () => {
+  const stillOpen = path("internet-compute-to-privileged-role", "sg:1", "role:1", "critical");
+  const before = [
+    stillOpen,
+    path("public-database", "rds:old", "rds:old", "high"),
+  ];
+  const after = [
+    stillOpen,
+    path("public-data-exposure", "s3:new", "s3:new", "critical"),
+  ];
+
+  const diff = diffAttackPaths(before, after);
+  assert.deepEqual(
+    diff.introduced.map((p) => p.ruleId),
+    ["public-data-exposure"],
+  );
+  assert.deepEqual(
+    diff.resolved.map((p) => p.ruleId),
+    ["public-database"],
+  );
+  assert.deepEqual(
+    diff.unchanged.map((p) => p.ruleId),
+    ["internet-compute-to-privileged-role"],
+  );
+});
+
+test("attack-path diff sorts introduced by severity and handles empty sides", () => {
+  const empty = diffAttackPaths([], []);
+  assert.deepEqual(empty, { introduced: [], resolved: [], unchanged: [] });
+
+  const after = [
+    path("r-low", "a", "a", "low"),
+    path("r-crit", "b", "b", "critical"),
+  ];
+  const diff = diffAttackPaths([], after);
+  assert.deepEqual(
+    diff.introduced.map((p) => p.severity),
+    ["critical", "low"],
+  );
 });

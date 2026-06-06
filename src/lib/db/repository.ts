@@ -10,12 +10,20 @@ import { and, desc, eq, lt, or } from "drizzle-orm";
 import { getConnection, getDb } from "@/lib/db/client";
 import {
   analyses,
+  attackPaths,
   environments,
   findings,
+  graphEdges,
+  graphNodes,
   scans,
+  type AttackPathRow,
   type EnvironmentRow,
+  type GraphEdgeRow,
+  type GraphNodeRow,
   type ScanRow,
 } from "@/lib/db/schema";
+import type { GraphEdge, GraphNode } from "@/lib/graph/tagging";
+import type { AttackPath } from "@/lib/graph/paths";
 import type { FindingStatus } from "@/lib/ocsf";
 import type {
   Analysis,
@@ -399,6 +407,110 @@ export function saveAnalysis(
       .where(eq(environments.id, scan.environmentId))
       .run();
   }
+}
+
+/* ----------------------------- attack-path graph --------------------------- */
+
+/**
+ * Persist a scan's graph (nodes + edges). Idempotent: clears any existing graph
+ * for the scan first, so re-running a scan replaces it cleanly.
+ */
+export function saveGraph(
+  scanId: string,
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+): void {
+  const db = getDb();
+  db.delete(graphNodes).where(eq(graphNodes.scanId, scanId)).run();
+  db.delete(graphEdges).where(eq(graphEdges.scanId, scanId)).run();
+
+  if (nodes.length > 0) {
+    db.insert(graphNodes)
+      .values(
+        nodes.map((n) => ({
+          scanId,
+          nodeKey: n.nodeKey,
+          type: n.type,
+          name: n.name,
+          region: n.region,
+          accountId: n.accountId,
+          capabilities: n.capabilities,
+          source: n.source,
+        })),
+      )
+      .run();
+  }
+  if (edges.length > 0) {
+    db.insert(graphEdges)
+      .values(
+        edges.map((e) => ({
+          scanId,
+          srcKey: e.srcKey,
+          dstKey: e.dstKey,
+          relation: e.relation,
+          evidence: e.evidence,
+          source: e.source,
+        })),
+      )
+      .run();
+  }
+}
+
+/** Read a scan's persisted graph. */
+export function getGraph(scanId: string): {
+  nodes: GraphNodeRow[];
+  edges: GraphEdgeRow[];
+} {
+  const db = getDb();
+  return {
+    nodes: db.select().from(graphNodes).where(eq(graphNodes.scanId, scanId)).all(),
+    edges: db.select().from(graphEdges).where(eq(graphEdges.scanId, scanId)).all(),
+  };
+}
+
+/**
+ * Persist a scan's computed attack paths (AP-2). Idempotent: clears existing
+ * paths for the scan first. `narrative` is left null — the LLM fills it (AP-3).
+ */
+export function saveAttackPaths(scanId: string, paths: AttackPath[]): void {
+  const db = getDb();
+  db.delete(attackPaths).where(eq(attackPaths.scanId, scanId)).run();
+  if (paths.length === 0) return;
+  db.insert(attackPaths)
+    .values(
+      paths.map((p) => ({
+        scanId,
+        ruleId: p.ruleId,
+        title: p.title,
+        severity: p.severity,
+        entryKey: p.entryKey,
+        targetKey: p.targetKey,
+        hops: p.hops as unknown,
+        capabilities: p.capabilities,
+        narrative: null,
+        confidence: p.confidence,
+        createdAt: new Date(),
+      })),
+    )
+    .run();
+}
+
+/** Read a scan's persisted attack paths, highest severity first. */
+export function getAttackPaths(scanId: string): AttackPathRow[] {
+  return getDb()
+    .select()
+    .from(attackPaths)
+    .where(eq(attackPaths.scanId, scanId))
+    .all();
+}
+
+/** Persist the LLM narrative onto a single attack-path row (AP-3). */
+export function setAttackPathNarrative(id: number, narrative: unknown): void {
+  getDb()
+    .update(attackPaths)
+    .set({ narrative })
+    .where(eq(attackPaths.id, id))
+    .run();
 }
 
 /** Latest analysis for a scan, mapped back to the `Analysis` shape. */

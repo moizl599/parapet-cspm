@@ -35,6 +35,7 @@ import { ScanProgress, type ProgressStage } from "@/components/scan-progress";
 import { ScanHistory } from "@/components/scan-history";
 import { ScanDiff } from "@/components/scan-diff";
 import { ChangeCallout } from "@/components/change-callout";
+import { AttackPaths } from "@/components/attack-paths";
 import {
   EmptyState,
   ErrorState,
@@ -42,15 +43,18 @@ import {
   PartialReportNote,
 } from "@/components/states";
 import { Button, Card, CardHeader, Pill } from "@/components/ui/primitives";
+import { RouteIcon } from "@/components/icons";
 import { useApp } from "@/components/app-context";
 import {
   getScan,
   getScanDiff,
   getScanHistory,
+  getScanPaths,
   reanalyzeScan,
   startScan,
   streamAnalysis,
   type AnalysisStatus,
+  type AttackPathDto,
   type ScanDiffResult,
   type ScanHistoryItem,
   type ScanResponse,
@@ -59,7 +63,7 @@ import {
 import { getAllClearDemo, getDemoData } from "@/lib/demo-data";
 import type { Analysis, Finding, FindingsSummary } from "@/lib/severity";
 
-type Tab = "overview" | "queue" | "findings" | "history" | "changes";
+type Tab = "overview" | "queue" | "findings" | "history" | "changes" | "paths";
 
 const POLL_INTERVAL_MS = 1500;
 const activeKey = (envId: string | null) => `cspm:activeScan:${envId ?? "__base__"}`;
@@ -152,6 +156,10 @@ export function Dashboard() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [changeSummary, setChangeSummary] = useState<ScanDiffResult | null>(null);
 
+  // Attack paths (AP-4).
+  const [paths, setPaths] = useState<AttackPathDto[] | null>(null);
+  const [pathsError, setPathsError] = useState<string | null>(null);
+
   // Demo data (?demo=1 | clear | analyzing) bypasses polling for screenshots/dev.
   const [demoActive, setDemoActive] = useState(false);
   const envsRef = useRef(environments);
@@ -180,6 +188,18 @@ export function Dashboard() {
       setHistory([]);
       setHistoryError(e instanceof Error ? e.message : "Failed to load scan history.");
       setChangeSummary(null);
+    }
+  }, []);
+
+  /* ---- attack paths (AP-4) ---- */
+  const loadPaths = useCallback(async (scanId: string) => {
+    try {
+      const res = await getScanPaths(scanId);
+      setPaths(res.paths);
+      setPathsError(null);
+    } catch (e) {
+      setPaths([]);
+      setPathsError(e instanceof Error ? e.message : "Failed to load attack paths.");
     }
   }, []);
 
@@ -258,6 +278,20 @@ export function Dashboard() {
     setLiveText("");
   }, [selectedId, envsLoaded, demoActive]);
 
+  /* ---- load attack paths for the active scan (AP-4) ---- */
+  useEffect(() => {
+    if (demoActive) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (!activeScanId) {
+      setPaths(null);
+      setPathsError(null);
+      return;
+    }
+    setPaths(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    void loadPaths(activeScanId);
+  }, [activeScanId, demoActive, loadPaths]);
+
   /* ---- poll the active scan's lifecycle ---- */
   useEffect(() => {
     if (demoActive || !activeScanId) return;
@@ -278,6 +312,7 @@ export function Dashboard() {
             if (s.status === "done" && s.analysisStatus === "done") {
               void refreshEnvironments(); // refresh posture score in header/cards
               if (selectedId) void loadHistory(selectedId); // new scan -> history/diff
+              void loadPaths(activeScanId); // narratives now filled
             }
             return;
           }
@@ -314,7 +349,7 @@ export function Dashboard() {
       stopped = true;
       ac.abort();
     };
-  }, [activeScanId, pollNonce, demoActive, selectedId, refreshEnvironments, loadHistory]);
+  }, [activeScanId, pollNonce, demoActive, selectedId, refreshEnvironments, loadHistory, loadPaths]);
 
   /* ---- live stream attach (read-only; never affects the job) ---- */
   useEffect(() => {
@@ -436,6 +471,12 @@ export function Dashboard() {
         count: view.findings?.length || undefined,
       },
       {
+        key: "paths",
+        label: "Attack paths",
+        icon: <RouteIcon className="size-4" />,
+        count: paths?.length || undefined,
+      },
+      {
         key: "history",
         label: "History",
         icon: <ActivityIcon className="size-4" />,
@@ -551,6 +592,8 @@ export function Dashboard() {
             onViewQueue={() => setTab("queue")}
             changeSummary={view.stage === "done" ? changeSummary : null}
             onViewChanges={() => setTab("changes")}
+            attackPaths={view.stage === "done" ? paths : null}
+            onViewPaths={() => setTab("paths")}
             live={{
               active: liveOn,
               onToggle: toggleLive,
@@ -570,6 +613,14 @@ export function Dashboard() {
 
         {tab === "findings" && (
           <FindingsTab findings={view.findings} busy={busy} onRun={runScan} />
+        )}
+
+        {tab === "paths" && (
+          <AttackPaths
+            paths={paths}
+            error={pathsError}
+            onRetry={() => activeScanId && void loadPaths(activeScanId)}
+          />
         )}
 
         {tab === "history" && (
@@ -599,6 +650,8 @@ function OverviewTab({
   onViewQueue,
   changeSummary,
   onViewChanges,
+  attackPaths,
+  onViewPaths,
   live,
 }: {
   view: View;
@@ -609,6 +662,8 @@ function OverviewTab({
   onViewQueue: () => void;
   changeSummary: ScanDiffResult | null;
   onViewChanges: () => void;
+  attackPaths: AttackPathDto[] | null;
+  onViewPaths: () => void;
   live: { active: boolean; onToggle: () => void; node: React.ReactNode };
 }) {
   // Empty — no scan yet.
@@ -630,8 +685,39 @@ function OverviewTab({
   const showProgress = view.stage !== "done";
   const hasData = view.findings !== null && view.summary !== null;
 
+  const pathCount = attackPaths?.length ?? 0;
+  const sensitivePaths =
+    attackPaths?.filter((p) => p.capabilities.includes("holds_data")).length ?? 0;
+  const criticalPaths =
+    attackPaths?.filter((p) => p.severity === "critical").length ?? 0;
+
   return (
     <div className="flex flex-col gap-5">
+      {/* Attack-paths callout — a route from exposure to something sensitive. */}
+      {pathCount > 0 && (
+        <button
+          type="button"
+          onClick={onViewPaths}
+          className="animate-rise flex w-full cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-critical/30 bg-critical/8 px-5 py-3.5 text-left transition-colors hover:bg-critical/12"
+        >
+          <RouteIcon className="size-4 shrink-0 text-critical" />
+          <span className="text-sm font-medium text-fg">
+            {pathCount} attack path{pathCount > 1 ? "s" : ""}
+            {criticalPaths > 0 && (
+              <span className="text-critical"> · {criticalPaths} critical</span>
+            )}
+          </span>
+          {sensitivePaths > 0 && (
+            <span className="text-sm text-muted">
+              — {sensitivePaths} reach{sensitivePaths === 1 ? "es" : ""} sensitive data
+            </span>
+          )}
+          <span className="ml-auto text-xs font-medium text-primary-hi">
+            View attack paths →
+          </span>
+        </button>
+      )}
+
       {/* "What changed since last scan" — only once this scan is fully done. */}
       {changeSummary?.diff && (
         <ChangeCallout result={changeSummary} onView={onViewChanges} />

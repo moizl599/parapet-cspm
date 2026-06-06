@@ -4,10 +4,28 @@
  */
 import type { Analysis, Finding, FindingsSummary } from "@/lib/severity";
 import type { EnvironmentDto } from "@/lib/env-dto";
-import type { ScanDiff } from "@/lib/diff";
+import type { ScanDiff, AttackPathDiff } from "@/lib/diff";
+import type {
+  AttackPathDto,
+  AttackPathNodeDto,
+  AttackPathEdgeDto,
+  BreakTheChainStep,
+  Effort,
+  PathNarrative,
+  PathsResponse,
+} from "@/lib/attack-path-dto";
 
 export type { EnvironmentDto };
-export type { ScanDiff };
+export type { ScanDiff, AttackPathDiff };
+export type {
+  AttackPathDto,
+  AttackPathNodeDto,
+  AttackPathEdgeDto,
+  BreakTheChainStep,
+  Effort,
+  PathNarrative,
+  PathsResponse,
+};
 
 export type ScanStatus = "queued" | "running" | "done" | "error";
 export type AnalysisStatus = "pending" | "running" | "done" | "error";
@@ -185,6 +203,8 @@ export interface ScanRef {
 export interface ScanDiffResult {
   /** null when there is no prior scan to compare against. */
   diff: ScanDiff | null;
+  /** Attack-path deltas (new / resolved / unchanged); null when no prior scan. */
+  pathDiff: AttackPathDiff | null;
   before: ScanRef | null;
   after: ScanRef;
 }
@@ -223,6 +243,22 @@ export async function getScanDiff(
     throw new Error(body.error ?? `Failed to load diff (HTTP ${res.status}).`);
   }
   return (await res.json()) as ScanDiffResult;
+}
+
+/** GET /api/scan/[id]/paths — computed attack paths (+ narrative where present). */
+export async function getScanPaths(
+  scanId: string,
+  signal?: AbortSignal,
+): Promise<PathsResponse> {
+  const res = await fetch(`/api/scan/${scanId}/paths`, {
+    signal,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `Failed to load attack paths (HTTP ${res.status}).`);
+  }
+  return (await res.json()) as PathsResponse;
 }
 
 /** GET /api/scan/[id] — status, plus findings + summary when done. */

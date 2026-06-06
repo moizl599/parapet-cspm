@@ -114,6 +114,13 @@ export type Severity = (typeof SEVERITIES)[number];
 export const FINDING_STATUSES = ["pass", "fail", "manual"] as const;
 export type FindingStatus = (typeof FINDING_STATUSES)[number];
 
+/** A related resource Prowler attached to a finding (e.g. an instance's role or
+ *  security groups). Used to derive REAL graph edges — never co-location. */
+export interface RelatedResource {
+  type: string;
+  id: string;
+}
+
 export interface Finding {
   id: string;
   /** Prowler check id (OCSF metadata.event_code), e.g. "ec2_sg_open". */
@@ -130,6 +137,11 @@ export interface Finding {
   remediationText: string;
   remediationUrl: string | null;
   complianceFrameworks: string[];
+  /** AWS account id (OCSF cloud.account.uid) when present. */
+  accountId?: string;
+  /** Additional resources Prowler listed alongside the primary one (resources[1..]).
+   *  The graph layer turns roles / security groups here into real edges. */
+  relatedResources?: RelatedResource[];
 }
 
 export interface NormalizeResult {
@@ -240,6 +252,23 @@ export function normalizeFinding(raw: unknown): Finding | null {
 
     const checkId = asString(finding.metadata?.event_code);
 
+    // Additional resources beyond the primary (resources[1..]). Prowler
+    // occasionally lists an instance's attached role / security groups here —
+    // the only honest source of v1 graph edges.
+    const relatedResources: RelatedResource[] = Array.isArray(finding.resources)
+      ? finding.resources
+          .slice(1)
+          .filter(isRecord)
+          .map((r) => ({
+            type: asString((r as OcsfResource).type) ?? "",
+            id:
+              asString((r as OcsfResource).uid) ??
+              asString((r as OcsfResource).name) ??
+              "",
+          }))
+          .filter((r) => r.id.length > 0)
+      : [];
+
     return {
       id,
       checkId,
@@ -263,6 +292,8 @@ export function normalizeFinding(raw: unknown): Finding | null {
       remediationText: asString(remediation.desc) ?? "",
       remediationUrl: firstHttpUrl(remediation.references),
       complianceFrameworks: complianceKeys(finding),
+      accountId: asString(finding.cloud?.account?.uid),
+      relatedResources: relatedResources.length > 0 ? relatedResources : undefined,
     };
   } catch {
     // Defensive: any unexpected shape error drops just this finding.
