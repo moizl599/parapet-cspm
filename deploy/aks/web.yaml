@@ -1,0 +1,85 @@
+# Parapet web app. Runs Prowler in-process (PROWLER_EXEC_MODE=local) — no Docker
+# socket. SQLite lives on a ReadWriteOnce Azure Disk, so this is a SINGLE replica.
+# For horizontal scaling, migrate to Postgres (see docs/AKS_DEPLOYMENT.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: parapet-data
+  namespace: parapet
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: parapet-web
+  namespace: parapet
+  labels: { app: parapet-web }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }           # RWO data disk → one pod at a time
+  selector:
+    matchLabels: { app: parapet-web }
+  template:
+    metadata:
+      labels: { app: parapet-web }
+    spec:
+      containers:
+        - name: web
+          # Replace with your ACR image, e.g. myregistry.azurecr.io/parapet:latest
+          image: REPLACE_WITH_ACR_LOGIN_SERVER/parapet:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: OLLAMA_BASE_URL
+              value: "http://ollama:11434/v1"
+            - name: OLLAMA_MODEL
+              value: "qwen2.5:7b"
+            - name: DATA_DIR
+              value: "/app/data"
+            - name: PROWLER_EXEC_MODE
+              value: "local"
+          envFrom:
+            - secretRef:
+                name: parapet-aws       # AWS_ACCESS_KEY_ID / SECRET / REGION
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /api/health/ollama
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: parapet-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: parapet-web
+  namespace: parapet
+spec:
+  selector: { app: parapet-web }
+  ports:
+    - port: 80
+      targetPort: 3000

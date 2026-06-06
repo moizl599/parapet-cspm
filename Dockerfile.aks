@@ -1,0 +1,57 @@
+# Dockerfile.aks — Parapet image for Kubernetes / AKS.
+#
+# Difference vs the local Dockerfile: instead of mounting the host Docker socket
+# and launching the prowlercloud/prowler container, this image has **Prowler
+# installed inside it** and runs it as a subprocess. That removes the socket
+# dependency entirely — the right model for a cluster.
+#
+# REQUIRES a small app change: prowler.ts must run the `prowler` CLI directly
+# when PROWLER_EXEC_MODE=local (instead of `docker run prowlercloud/prowler ...`).
+# See docs/AKS_DEPLOYMENT.md → "Required code change".
+#
+# Build & push to ACR:
+#   az acr build -r <yourRegistry> -t parapet:latest -f Dockerfile.aks .
+
+# ---- deps ----
+FROM node:24-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# ---- build ----
+FROM node:24-slim AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# ---- runtime ----
+FROM node:24-slim AS runtime
+ENV NODE_ENV=production \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000 \
+    PROWLER_EXEC_MODE=local \
+    DATA_DIR=/app/data
+
+# Install Prowler (read-only AWS scanner) + a non-root user.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 python3-pip python3-venv ca-certificates \
+ && python3 -m pip install --no-cache-dir --break-system-packages prowler \
+ && apt-get purge -y python3-pip && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd -m -u 10001 parapet
+
+WORKDIR /app
+# Next.js standalone output + assets it doesn't trace automatically.
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
+COPY --from=build /app/drizzle ./drizzle
+COPY --from=build /app/prowler ./prowler
+
+# Data dir (SQLite) — mounted as a PVC in the cluster.
+RUN mkdir -p /app/data /app/scans && chown -R parapet:parapet /app/data /app/scans
+USER parapet
+
+EXPOSE 3000
+CMD ["node", "server.js"]

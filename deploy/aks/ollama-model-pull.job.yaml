@@ -1,0 +1,21 @@
+# One-time Job: pull the model into the Ollama volume after the Ollama
+# Deployment is running. Re-run safely (idempotent). Change the model tag to
+# match OLLAMA_MODEL on the web Deployment.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-model-pull
+  namespace: parapet
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: pull
+          image: ollama/ollama:latest
+          env:
+            - name: OLLAMA_HOST
+              value: "http://ollama:11434"
+          command: ["ollama", "pull", "qwen2.5:7b"]

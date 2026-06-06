@@ -1,0 +1,39 @@
+# Ingress for the Parapet UI.
+#
+# ⚠️ AUTHENTICATION IS REQUIRED. Parapet has NO built-in login. Anyone who can
+# reach this URL can trigger scans and read your findings. The example below adds
+# HTTP basic auth as a MINIMUM. For anything real, put an identity-aware proxy in
+# front (oauth2-proxy + Azure AD / Entra ID) — see docs/AKS_DEPLOYMENT.md.
+#
+# Assumes the ingress-nginx controller is installed. Create the basic-auth secret:
+#   htpasswd -c auth parapet            # creates ./auth
+#   kubectl -n parapet create secret generic parapet-basic-auth --from-file=auth
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: parapet
+  namespace: parapet
+  annotations:
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: parapet-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Parapet — authentication required"
+    # Long-running analysis responses (SSE): raise proxy timeouts.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    cert-manager.io/cluster-issuer: letsencrypt-prod   # if cert-manager is installed
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["parapet.example.com"]      # replace with your hostname
+      secretName: parapet-tls
+  rules:
+    - host: parapet.example.com           # replace with your hostname
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: parapet-web
+                port:
+                  number: 80
