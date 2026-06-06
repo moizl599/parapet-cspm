@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+/*
+ * CSPM Analyzer design system — dark SOC / observability aesthetic.
+ * Severity colors are defined ONCE here and reused everywhere via Tailwind
+ * utilities (text-critical, bg-high/12, border-low, …). WCAG AA verified
+ * against --color-bg.
+ */
+@theme {
+  /* Surfaces (near-black, faint blue cast) */
+  --color-bg: #0a0e14;
+  --color-surface: #111722;
+  --color-surface-2: #161d2b;
+  --color-surface-3: #1d2636;
+
+  /* Lines */
+  --color-border: #222b3b;
+  --color-border-strong: #303c54;
+
+  /* Text */
+  --color-fg: #e7eef8; /* ~13:1 on bg  */
+  --color-muted: #9aa7bd; /* ~6:1 on bg   */
+  --color-faint: #6b7890; /* ~3.4:1 — labels/large only */
+
+  /* Brand */
+  --color-primary: #3b82f6;
+  --color-primary-hi: #60a5fa;
+  --color-accent: #f59e0b;
+  --color-ok: #34d399;
+
+  /* Severity tokens (single source of truth) */
+  --color-critical: #f4476b;
+  --color-high: #ff8a3d;
+  --color-medium: #f6c343;
+  /* Muted slate-blue — deliberately desaturated so it never reads as the
+     interactive primary (#3b82f6/#60a5fa). */
+  --color-low: #8094b8;
+  --color-info: #93a0b5;
+
+  /* Type */
+  --font-sans: var(--font-fira-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-fira-code), ui-monospace, "SF Mono", monospace;
+
+  /* Motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular figures for all data/numbers — prevents layout shift. */
+  .tnum {
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Visible, consistent focus for keyboard nav (never removed). */
+  :focus-visible {
+    outline: 2px solid var(--color-primary-hi);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-primary) 35%, transparent);
+  }
+
+  /* Thin dark scrollbars to match the SOC chrome. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+}
+
+@layer utilities {
+  /* Loading skeleton shimmer. */
+  .skeleton {
+    background: linear-gradient(
+      100deg,
+      var(--color-surface-2) 30%,
+      var(--color-surface-3) 50%,
+      var(--color-surface-2) 70%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s var(--ease-out-soft) infinite;
+  }
+  @keyframes skeleton-shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  /* Soft entrance for streamed/expanded content. */
+  .animate-rise {
+    animation: rise 0.28s var(--ease-out-soft) both;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  /* Blinking caret for the live "thinking" stream. */
+  .caret::after {
+    content: "";
+    display: inline-block;
+    width: 0.5ch;
+    height: 1.05em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: var(--color-primary-hi);
+    animation: caret-blink 1s steps(1) infinite;
+  }
+  @keyframes caret-blink {
+    50% {
+      opacity: 0;
+    }
+  }
+}
+
+/* Respect reduced-motion everywhere. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

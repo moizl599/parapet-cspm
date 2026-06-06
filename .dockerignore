@@ -1,0 +1,17 @@
+# Build context exclusions — keep the image lean and never bake secrets/state.
+node_modules
+.next
+scans
+data
+screenshots
+test-results
+.git
+.gitignore
+.env
+.env.local
+.env.*.local
+npm-debug.log*
+*.tsbuildinfo
+.vscode
+.claude
+README.md

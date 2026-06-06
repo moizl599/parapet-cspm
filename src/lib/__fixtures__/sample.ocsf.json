@@ -1,0 +1,122 @@
+[
+  {
+    "message": "Security group sg-REDACTED has SSH (port 22) open to 0.0.0.0/0.",
+    "activity_name": "Create",
+    "activity_id": 1,
+    "finding_info": {
+      "created_time": 1717200000,
+      "desc": "Ensure no security groups allow ingress from 0.0.0.0/0 to port 22.",
+      "title": "Ensure no security groups allow ingress from 0.0.0.0/0 to remote server administration ports.",
+      "uid": "prowler-aws-ec2_securitygroup_allow_ingress_from_internet_to_port_22-000000000000-us-east-1-sg-REDACTED",
+      "name": "sg-REDACTED",
+      "types": ["Software and Configuration Checks"]
+    },
+    "remediation": {
+      "desc": "Remove the 0.0.0.0/0 ingress rule for port 22 and restrict to known CIDRs.",
+      "references": [
+        "https://docs.aws.amazon.com/vpc/latest/userguide/VPC_SecurityGroups.html"
+      ]
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Security group sg-REDACTED has SSH (port 22) open to 0.0.0.0/0.",
+    "risk_details": "Exposing administration ports to the internet greatly increases the attack surface.",
+    "resources": [
+      {
+        "labels": [],
+        "name": "sg-REDACTED",
+        "uid": "arn:aws:ec2:us-east-1:000000000000:security-group/sg-REDACTED",
+        "group": { "name": "ec2" },
+        "type": "AwsEc2SecurityGroup",
+        "cloud_partition": "aws",
+        "region": "us-east-1",
+        "data": { "details": "", "metadata": {} }
+      }
+    ],
+    "metadata": {
+      "event_code": "ec2_securitygroup_allow_ingress_from_internet_to_port_22",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "5.0.0"
+      }
+    },
+    "cloud": {
+      "account": { "uid": "000000000000", "name": "redacted-account" },
+      "provider": "aws",
+      "region": "us-east-1"
+    },
+    "unmapped": {
+      "related_url": "",
+      "categories": ["internet-exposed"],
+      "compliance": {
+        "CIS-2.0": ["5.2"],
+        "AWS-Foundational-Security-Best-Practices": ["ec2.13"]
+      }
+    }
+  },
+  {
+    "finding_info": {
+      "desc": "Ensure IAM password policy requires a minimum length of 14 or greater.",
+      "title": "Ensure IAM password policy requires minimum length of 14 or greater.",
+      "uid": "prowler-aws-iam_password_policy_minimum_length_14-000000000000-us-east-1-account",
+      "name": "password_policy"
+    },
+    "remediation": {
+      "desc": "Set the account password policy minimum length to at least 14.",
+      "references": []
+    },
+    "severity_id": 2,
+    "severity": "Low",
+    "status_code": "PASS",
+    "status_detail": "IAM password policy requires a minimum length of 14.",
+    "risk_details": "Short passwords are easier to brute force.",
+    "resources": [
+      {
+        "name": "password_policy",
+        "uid": "arn:aws:iam::000000000000:account",
+        "group": { "name": "iam" },
+        "type": "AwsIamAccountPasswordPolicy",
+        "region": "us-east-1"
+      }
+    ],
+    "metadata": {
+      "event_code": "iam_password_policy_minimum_length_14"
+    },
+    "cloud": { "provider": "aws", "region": "us-east-1" }
+  },
+  {
+    "finding_info": {
+      "title": "Ensure S3 buckets block public access.",
+      "uid": "prowler-aws-s3_bucket_public_access-000000000000-us-east-1-redacted-bucket"
+    },
+    "remediation": {
+      "desc": "Enable S3 Block Public Access at the account and bucket level.",
+      "references": [
+        "not-a-url",
+        "https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"
+      ]
+    },
+    "severity_id": 5,
+    "status_code": "FAIL",
+    "status_detail": "S3 bucket redacted-bucket allows public access.",
+    "resources": [
+      {
+        "uid": "arn:aws:s3:::redacted-bucket",
+        "type": "AwsS3Bucket"
+      }
+    ],
+    "metadata": { "event_code": "s3_bucket_public_access" },
+    "compliance": { "CIS-2.0": ["2.1.5"] }
+  },
+  {
+    "status_code": "FAIL",
+    "severity": "Critical",
+    "metadata": { "event_code": "this_finding_has_no_uid_and_must_be_dropped" }
+  },
+  null
+]

@@ -1,0 +1,24 @@
+<svg viewBox="10 34 180 140" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Parapet">
+  <circle cx="100" cy="80" r="40" fill="#58B7EC"/>
+  <circle cx="62" cy="102" r="30" fill="#58B7EC"/>
+  <circle cx="138" cy="102" r="30" fill="#58B7EC"/>
+  <circle cx="40" cy="114" r="22" fill="#58B7EC"/>
+  <circle cx="160" cy="114" r="22" fill="#58B7EC"/>
+  <rect x="40" y="100" width="120" height="30" fill="#58B7EC"/>
+  <rect x="48" y="92" width="10" height="9" fill="#0E2A47"/>
+  <rect x="66" y="92" width="10" height="9" fill="#0E2A47"/>
+  <rect x="44" y="100" width="38" height="42" fill="#0E2A47"/>
+  <rect x="124" y="92" width="10" height="9" fill="#0E2A47"/>
+  <rect x="142" y="92" width="10" height="9" fill="#0E2A47"/>
+  <rect x="118" y="100" width="38" height="42" fill="#0E2A47"/>
+  <rect x="82" y="52" width="10" height="10" fill="#0E2A47"/>
+  <rect x="95" y="52" width="10" height="10" fill="#0E2A47"/>
+  <rect x="108" y="52" width="10" height="10" fill="#0E2A47"/>
+  <rect x="82" y="62" width="36" height="58" fill="#0E2A47"/>
+  <path fill="#4FA8DD" d="M78 112 L122 112 L122 140 Q122 158 100 168 Q78 158 78 140 Z"/>
+  <path fill="#2E7FB8" d="M100 112 L122 112 L122 140 Q122 158 100 168 Z"/>
+  <path fill="none" stroke="#E2A23E" stroke-width="3.5" d="M93 128 V122 a7 7 0 0 1 14 0 V128"/>
+  <rect x="90" y="128" width="20" height="18" rx="2.5" fill="#E2A23E"/>
+  <circle cx="100" cy="135" r="2.4" fill="#0E2A47"/>
+  <rect x="99" y="135" width="2" height="5" fill="#0E2A47"/>
+</svg>

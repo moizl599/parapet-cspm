@@ -1,0 +1,58 @@
+# CSPM Analyzer — local stack for Docker Desktop.
+#
+#   docker compose up -d
+#   docker compose exec ollama ollama pull llama3.1:8b   # one-time model pull
+#   open http://localhost:3000
+#
+# The web container launches Prowler on the HOST Docker daemon via the mounted
+# socket (see the Dockerfile security note).
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    # AWS creds + overrides live in .env (gitignored). Optional so the stack can
+    # boot without it — AWS creds are only validated when a scan is actually run.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Reach Ollama over the compose network, overriding the localhost default.
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      # qwen2.5:7b: notably better JSON/instruction adherence than llama3.1:8b
+      # (similar size) for the structured-output analysis. Override in .env if you
+      # prefer a different model (remember to `ollama pull` it).
+      OLLAMA_MODEL: qwen2.5:7b
+      # Prowler runs on the HOST daemon, so its `-v` mount SOURCE must be a HOST
+      # path — NOT the container's /app/scans. This is the host path bound to
+      # /app/scans below. Defaults to "<compose working dir>/scans"; on Windows
+      # (where $PWD may be empty) set HOST_SCANS_DIR to an absolute path in .env.
+      HOST_SCANS_DIR: ${HOST_SCANS_DIR:-${PWD}/scans}
+      # SQLite database directory (cspm.db lives here), backed by the ./data volume.
+      DATA_DIR: /app/data
+    volumes:
+      # Scan artifacts: same physical dir seen by web (/app/scans) and by the
+      # host-side Prowler container (HOST_SCANS_DIR).
+      - ./scans:/app/scans
+      # SQLite persistence — survives container rebuilds/restarts.
+      - ./data:/app/data
+      # Host Docker socket — lets web spawn read-only Prowler scans on demand.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      # Persist pulled models across restarts so you pull llama3.1:8b only once.
+      - ollama_models:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama_models:

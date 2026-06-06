@@ -1,0 +1,46 @@
+# Dependencies
+node_modules
+/.pnp
+.pnp.*
+
+# Next.js build output
+.next
+/out
+/build
+next-env.d.ts
+*.tsbuildinfo
+
+# Environment / secrets (note: .env.example IS committed)
+.env
+.env.local
+.env.*.local
+
+# Scan artifacts
+scans/
+*.ocsf.json
+
+# SQLite database (DATA_DIR)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Design-review screenshots (generated artifacts)
+screenshots/
+# ...but keep committed test fixtures
+!src/lib/__fixtures__/
+!src/lib/__fixtures__/*.ocsf.json
+
+# Test / Playwright artifacts
+test-results/
+.pw-data/
+playwright-report/
+
+# Local agent settings
+.claude/settings.local.json
+
+# Vercel / misc
+.vercel
+.DS_Store
+*.pem
+npm-debug.log*
