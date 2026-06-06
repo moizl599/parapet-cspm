@@ -18,7 +18,7 @@ Parapet runs as a small local stack on **Docker Desktop**: a `web` service (the 
 ## 2. Get the code
 
 ```bash
-git clone https://github.com/<your-username>/parapet-cspm.git
+git clone https://github.com/moizl599/parapet-cspm.git
 cd parapet-cspm
 ```
 

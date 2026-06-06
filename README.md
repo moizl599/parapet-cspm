@@ -95,7 +95,7 @@ For assume-role scanning, Prowler performs the STS `AssumeRole` itself — so th
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/<your-username>/parapet-cspm.git
+git clone https://github.com/moizl599/parapet-cspm.git
 cd parapet-cspm
 ./install.sh
 ```
@@ -103,7 +103,7 @@ cd parapet-cspm
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/<your-username>/parapet-cspm.git
+git clone https://github.com/moizl599/parapet-cspm.git
 cd parapet-cspm
 ./install.ps1
 ```
