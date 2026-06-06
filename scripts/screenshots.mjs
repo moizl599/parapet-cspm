@@ -121,5 +121,30 @@ await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/d-switcher-open.png` });
 console.log("✓ d-switcher-open.png");
 
+// (e) Overview — full report: posture gauge, severity breakdown, exec summary,
+// quick wins (the canonical dashboard overview, stable demo data).
+await page.goto(`${BASE}/?demo=1`, { waitUntil: "networkidle" });
+await page.getByText("Executive summary").waitFor();
+await page.waitForTimeout(500);
+await page.screenshot({ path: `${OUT}/overview-demo.png` });
+console.log("✓ overview-demo.png");
+
+// (f) Action queue — populated, with the top item expanded to show detail.
+await page.getByRole("button", { name: /Action queue/ }).click();
+await page.waitForTimeout(400);
+// Expand the first action card (scoped to <main> so we don't hit the header
+// switcher, which also carries aria-expanded).
+await page.locator('main button[aria-expanded]').first().click();
+await page.waitForTimeout(400);
+await page.screenshot({ path: `${OUT}/action-queue-expanded.png` });
+console.log("✓ action-queue-expanded.png");
+
+// (f) Findings — the populated, filterable "trust but verify" table.
+await page.getByRole("button", { name: /Findings/ }).click();
+await page.getByRole("searchbox", { name: "Search findings" }).waitFor();
+await page.waitForTimeout(400);
+await page.screenshot({ path: `${OUT}/findings-filtered.png` });
+console.log("✓ findings-filtered.png");
+
 await browser.close();
 console.log("done");
