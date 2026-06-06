@@ -16,23 +16,16 @@ Parapet was built as a **local, single-user** tool (Docker Desktop). Running it 
 | **Ollama on your laptop** | Needs real CPU/RAM in-cluster; CPU inference is slow | Dedicated Ollama Deployment + model PVC; size the node pool for it |
 | **"Nothing leaves your machine"** | Findings now live in your Azure cluster | Still private to *your* cluster, but it's a different trust boundary — worth stating to stakeholders |
 
-### Required code change (prerequisite)
+### The `PROWLER_EXEC_MODE` switch (implemented)
 
-The baked-in Prowler image only helps if the app actually calls the `prowler` CLI instead of `docker run`. Add a `PROWLER_EXEC_MODE` switch:
+The baked-in Prowler image only helps if the app calls the `prowler` CLI instead of `docker run`. This is handled by `prowler/run-scan.sh` via the `PROWLER_EXEC_MODE` environment variable:
 
-- `socket` (default) → current behaviour: `docker run prowlercloud/prowler ...` via the mounted socket.
-- `local` → run `prowler aws ...` directly as a subprocess, writing OCSF output to `DATA_DIR`/`scans` inside the pod (no host-path / `HOST_SCANS_DIR` juggling).
+- `socket` (**default**) → unchanged local behaviour: `docker run prowlercloud/prowler aws ...` via the mounted Docker socket.
+- `local` → runs the installed `prowler aws ...` CLI directly as a subprocess (no Docker, no `-v` mounts), writing OCSF output straight into the pod-local scans dir. `HOST_SCANS_DIR` is irrelevant in this mode.
 
-Prompt for Claude Code (run in the repo):
+`Dockerfile.aks` sets `PROWLER_EXEC_MODE=local`, so the cluster image uses the in-process path automatically. Assume-role (`--role`/`--external-id`) and region filters work identically in both modes. Nothing else in the app changes — the API and the OCSF normalizer are untouched.
 
-```text
-Add a PROWLER_EXEC_MODE env switch to src/lib/prowler.ts (and prowler/run-scan.sh).
-- Default "socket": keep the current `docker run prowlercloud/prowler aws ...` behaviour.
-- "local": run the locally-installed `prowler aws ...` CLI directly as a child process (no docker, no -v mounts). Pass the same flags (-M json-ocsf, -o <dir>, -F <scanId>, -z, --role/--external-id for assume-role environments). Write output under a pod-local scans dir derived from DATA_DIR. Read the resulting <scanId>.ocsf.json back as today.
-Keep assume-role working in both modes. Add a unit test for the local-mode command construction. Don't change the API or the normalizer.
-```
-
-Everything below assumes that switch exists and `Dockerfile.aks` is built with it.
+> Verify before deploying (run in the repo): `npm run typecheck && npm run lint && npm test && docker compose build`, and confirm a normal local scan (`PROWLER_EXEC_MODE` unset → `socket`) still works.
 
 ---
 

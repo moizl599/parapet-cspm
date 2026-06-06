@@ -1,0 +1,16 @@
+# Normalize line endings. Shell scripts and Dockerfiles MUST be LF — they run
+# inside Linux containers, where CRLF breaks the shebang ("bad interpreter").
+* text=auto eol=lf
+
+*.sh        text eol=lf
+Dockerfile* text eol=lf
+*.ps1       text eol=crlf
+
+# Binary assets — never normalize.
+*.png  -text
+*.jpg  -text
+*.jpeg -text
+*.gif  -text
+*.ico  -text
+*.pdf  -text
+*.db   -text
