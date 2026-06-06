@@ -213,3 +213,53 @@ test("deduplicates a repeated relationship edge", () => {
   assert.equal(edges.length, 1);
   assert.equal(edges[0].relation, "in_security_group");
 });
+
+test("weak_auth is scoped to identity checks (no S3 MFA-delete / CloudWatch metric-filter false positives)", () => {
+  const capsFor = (checkId: string, resourceType: string, resourceId: string) => {
+    const { nodes } = buildGraph([mk({ checkId, resourceType, resourceId })]);
+    return nodes[0]?.capabilities ?? [];
+  };
+
+  // IDENTITY checks DO tag weak_auth.
+  assert.ok(
+    capsFor("iam_user_mfa_enabled_console_access", "AwsIamUser", "user/a").includes(
+      "weak_auth",
+    ),
+  );
+  assert.ok(
+    capsFor("iam_root_hardware_mfa_enabled", "AwsIamUser", "root").includes(
+      "weak_auth",
+    ),
+  );
+  assert.ok(
+    capsFor(
+      "iam_password_policy_minimum_length_14",
+      "AwsIamAccountPasswordPolicy",
+      "account",
+    ).includes("weak_auth"),
+  );
+  // account_-prefixed password policy also counts.
+  assert.ok(
+    capsFor(
+      "account_password_policy_minimum_length",
+      "AwsAccount",
+      "account",
+    ).includes("weak_auth"),
+  );
+
+  // NON-identity findings that merely mention "mfa" must NOT tag weak_auth.
+  assert.equal(
+    capsFor("s3_bucket_mfa_delete_enabled", "AwsS3Bucket", "arn:aws:s3:::b").includes(
+      "weak_auth",
+    ),
+    false,
+  );
+  assert.equal(
+    capsFor(
+      "cloudwatch_log_metric_filter_sign_in_without_mfa",
+      "AwsCloudWatchAlarm",
+      "log-group",
+    ).includes("weak_auth"),
+    false,
+  );
+});

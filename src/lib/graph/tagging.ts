@@ -140,8 +140,16 @@ const CAP_RULES: CapRule[] = [
     test: ({ checkId }) => /encrypt/.test(checkId),
   },
   {
+    // IDENTITY weak-auth only. Anchoring to iam_/account_ deliberately excludes
+    // non-identity findings that merely mention "mfa": S3 MFA-delete
+    // (s3_bucket_*_mfa_delete) and the CloudWatch CIS "metric filter ... without
+    // MFA" log-metric checks (cloudwatch_*/cloudtrail_*), which are not auth
+    // strength on an identity.
     cap: "weak_auth",
-    test: ({ checkId }) => /mfa/.test(checkId) || /password_policy/.test(checkId),
+    test: ({ checkId }) =>
+      /^iam_.*mfa/.test(checkId) ||
+      /^iam_.*password_policy/.test(checkId) ||
+      /^account_.*password_policy/.test(checkId),
   },
   {
     cap: "credential_exposure",
