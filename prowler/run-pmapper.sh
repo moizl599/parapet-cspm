@@ -73,8 +73,17 @@ fi
 ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)" \
   || die "could not resolve account id"
 
+# Restrict regional edge-gathering to the environment's region(s) (the `global`
+# region — where IAM / sts:AssumeRole edges live — is ALWAYS included). Without
+# this, PMapper iterates every region and raises a HARD EndpointConnectionError
+# on disabled opt-in regions (e.g. autoscaling.me-south-1), failing the build.
+# IAM identity edges are global, so this loses no can_assume/can_access edges.
+REGIONS="${PROWLER_REGIONS:-$AWS_DEFAULT_REGION}"
+echo "run-pmapper.sh:   regions (+ global): ${REGIONS}" >&2
+
 # Build the graph (read-only). PMapper stores it under its data directory.
-pmapper graph create || die "pmapper graph create failed"
+# shellcheck disable=SC2086
+pmapper graph create --include-regions ${REGIONS} || die "pmapper graph create failed"
 
 # Serialize PMapper's on-disk graph into our normalized {nodes,edges} JSON using
 # PMapper's own Python API (no AWS calls here, just disk read).
