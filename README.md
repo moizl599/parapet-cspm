@@ -37,6 +37,7 @@ A local LLM reads every finding and acts as a senior cloud-security engineer: it
 | 🧠 **Local LLM analysis** | A local model (Ollama) reads the findings and produces a prioritised remediation plan. Nothing is sent to a third-party API. |
 | 🔑 **Assume-role, multi-environment** | Register multiple AWS accounts in the UI via cross-account IAM roles. The database stores role ARNs — **never secret keys**. |
 | 📈 **History & diffing** | Every scan is persisted. See posture trend over time and a scan-to-scan diff: what's **new**, **resolved**, and **still open**. |
+| 🕸️ **Attack-path simulation** | Builds a graph of your account and surfaces real attack chains — internet → exposed resource → sensitive target — ranked by risk and **narrated by the local LLM (only paths the engine actually found)**. Optional [PMapper](https://github.com/nccgroup/PMapper) adds authoritative IAM privilege-escalation chains. |
 | ⏳ **Resilient async pipeline** | Analysis runs as a background job that survives tab closes, shows live chunk-by-chunk progress, and produces a partial report rather than failing if a chunk errors. |
 | 🎨 **Modern SOC dashboard** | Dark, accessible, security-operations UI with a posture gauge, severity charts, a prioritised action queue, and a filterable findings table. |
 
@@ -45,6 +46,9 @@ A local LLM reads every finding and acts as a senior cloud-security engineer: it
 ## Screenshots
 
 <table>
+  <tr>
+    <td colspan="2"><img src="docs/images/attack-paths.png" alt="Attack-path simulation" /><br/><sub><b>Attack paths</b> — real chains from internet / exposed resource to a sensitive target, ranked and explained by the local LLM (identity-escalation chains via optional PMapper)</sub></td>
+  </tr>
   <tr>
     <td width="50%"><img src="docs/images/analyzing.png" alt="Live analysis progress" /><br/><sub><b>Async analysis</b> — live chunk progress, safe to close the tab</sub></td>
     <td width="50%"><img src="docs/images/action-queue.png" alt="Prioritised action queue" /><br/><sub><b>Action queue</b> — reprioritised items with remediation steps</sub></td>
