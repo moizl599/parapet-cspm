@@ -150,3 +150,61 @@ test("caps output at 50 paths", () => {
   );
   assert.equal(buildAttackPaths(many, []).length, 50);
 });
+
+/* ---------------------- AP-5: PMapper identity chains ---------------------- */
+
+test("identity multi-hop: alice -> intermediate -> admin fires privilege-escalation-chain (high, directed)", () => {
+  // PMapper-style directed can_assume edges (source can assume destination).
+  const alice = node("iam_user:alice", "iam_user", [], "alice");
+  const inter = node("iam_role:intermediate", "iam_role", [], "intermediate");
+  const admin = node("iam_role:admin", "iam_role", ["privileged"], "admin");
+  const edges: PathEdge[] = [
+    { srcKey: alice.nodeKey, dstKey: inter.nodeKey, relation: "can_assume" },
+    { srcKey: inter.nodeKey, dstKey: admin.nodeKey, relation: "can_assume" },
+  ];
+
+  const paths = buildAttackPaths([alice, inter, admin], edges);
+  const chain = paths.find(
+    (p) =>
+      p.ruleId === "privilege-escalation-chain" &&
+      p.entryKey === alice.nodeKey &&
+      p.targetKey === admin.nodeKey,
+  );
+  assert.ok(chain, "expected alice → admin escalation chain");
+  assert.equal(chain.severity, "high");
+  assert.equal(chain.confidence, "high"); // real PMapper edges
+  assert.deepEqual(chain.hops.nodes, [alice.nodeKey, inter.nodeKey, admin.nodeKey]);
+  assert.equal(chain.hops.edges.length, 2);
+});
+
+test("escalation traversal is DIRECTED — admin does not 'escalate' backward to a non-admin", () => {
+  // Only edge: alice can_assume admin. Reverse direction must not yield a path.
+  const alice = node("iam_user:alice", "iam_user", [], "alice");
+  const admin = node("iam_role:admin", "iam_role", ["privileged"], "admin");
+  const edges: PathEdge[] = [
+    { srcKey: alice.nodeKey, dstKey: admin.nodeKey, relation: "can_assume" },
+  ];
+  const paths = buildAttackPaths([alice, admin], edges);
+  // alice -> admin fires; there is no admin -> alice escalation (alice isn't privileged anyway).
+  const chains = paths.filter((p) => p.ruleId === "privilege-escalation-chain");
+  assert.equal(chains.length, 1);
+  assert.equal(chains[0].entryKey, alice.nodeKey);
+  assert.equal(chains[0].targetKey, admin.nodeKey);
+});
+
+test("wildcard-trust-admin-role activates when PMapper supplies privileged + wildcard_trust", () => {
+  const admin = node("iam_role:admin", "iam_role", ["privileged", "wildcard_trust"], "admin");
+  const paths = buildAttackPaths([admin], []);
+  const wt = paths.find((p) => p.ruleId === "wildcard-trust-admin-role");
+  assert.ok(wt, "wildcard-trust-admin-role should fire");
+  assert.equal(wt.severity, "critical");
+
+  // Without the wildcard_trust signal (Prowler-only) it stays dormant.
+  const adminNoTrust = node("iam_role:admin2", "iam_role", ["privileged"], "admin2");
+  assert.equal(
+    buildAttackPaths([adminNoTrust], []).some(
+      (p) => p.ruleId === "wildcard-trust-admin-role",
+    ),
+    false,
+  );
+});

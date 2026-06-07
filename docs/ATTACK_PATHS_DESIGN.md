@@ -150,21 +150,44 @@ For the chain visual, a simple horizontal node-edge SVG (or Mermaid) is enough �
 
 ---
 
-## v2 — PMapper integration (true IAM chains)
+## v2 — PMapper integration (true IAM chains) — SHIPPED (AP-5)
 
-PMapper is read-only and runs as a CLI/container, so it slots in exactly like Prowler (you already have the `PROWLER_EXEC_MODE` "run a scanner, parse output" pattern):
+PMapper is read-only and runs as a CLI, so it slots in exactly like Prowler ("run a scanner, parse output"). It is **gated behind `PMAPPER_ENABLED` (default off)** — with it off, behavior is identical to v1.
 
-1. Run PMapper for the environment (it builds the IAM authorization graph and computes privesc).
-2. Parse its graph into `graph_nodes` / `graph_edges` with `source='pmapper'` and `relation='can_assume'|'can_access'` plus privesc edges.
-3. The same path engine now finds **real multi-hop IAM chains** (e.g. exposed host → instance role → `iam:PassRole` → admin role → data store), and `confidence` rises to high for those links.
+How it's wired:
 
-Optionally add a network-reachability collector later for true network-path edges. Keep everything read-only and AWS-SDK-free (delegate to the external tool).
+1. **Run** (`prowler/run-pmapper.sh`, invoked by `src/lib/pmapper.ts`): read-only, credentials injected via the environment (never the command line), assume-role delegated to `aws sts assume-role` in the wrapper (same base/assume-role creds as Prowler). PMapper builds the IAM authorization graph and computes privesc, then the wrapper serializes it to a single `{nodes, edges}` JSON via PMapper's own Python API. **The app stays AWS-SDK-free** — every AWS call happens inside PMapper / aws-cli.
+2. **Parse** (`src/lib/graph/pmapper-parse.ts`, pure): PMapper nodes → `graph_nodes` (`source='pmapper'`), keyed `iam_role:<arn>` / `iam_user:<arn>` so they **merge** with Prowler nodes for the same ARN. `is_admin` → `privileged`; a broad/wildcard trust policy → `wildcard_trust`. PMapper edges → `graph_edges` with `relation='can_assume'` (reason mentions assume) or `'can_access'`.
+3. **Merge** (`mergeGraphs`) the PMapper graph onto the Prowler graph **before** the path engine runs (capabilities unioned, edges deduped).
+4. **Engine**: a directed rule, `privilege-escalation-chain`, walks `can_assume`/`can_access` edges (direction matters — "A can assume B" ≠ the reverse) from any IAM identity to a `privileged` target, producing **real identity multi-hop chains** at **`confidence=high`**. The previously-dormant **`wildcard-trust-admin-role`** rule now fires when PMapper supplies a `privileged` role with `wildcard_trust`.
+
+### Setup
+
+PMapper, `aws-cli`, and `python3` must be available in the runtime image (opt-in; only needed when enabled). Then:
+
+```bash
+PMAPPER_ENABLED=true          # in .env
+# pmapper graph create runs read-only with the scan's credentials
+```
+
+The same read-only credential model applies; for a 'role' environment the wrapper assumes the role via STS first.
+
+---
+
+## Scope boundary — the remaining gap (EC2 instance-profile edges)
+
+**PMapper does NOT model EC2-instance → IAM-role attachment.** Its graph is the IAM *authorization* graph (which principals can assume/access which), not which compute resources carry which role. So the lab chain **internet → EC2 instance → its instance-profile role → admin does NOT fully connect from PMapper alone** — the `internet-exposed instance → uses_role → role` hop is missing on both sides:
+
+- **Prowler** flags the instance as internet-facing-with-a-profile (`ec2_instance_internet_facing_with_instance_profile`) but its normalized finding carries only the instance as a single resource — no related role/SG (the AP-1/AP-4 finding).
+- **PMapper** knows the role's privileges and who can assume it, but not that *this instance* is bound to it.
+
+Closing this requires an **EC2 instance-profile edge collector**: `ec2:DescribeInstances` + `iam:GetInstanceProfile` to emit `uses_role` / `in_security_group` edges from instances. That is a deliberate **future** item, **not implemented here**, because capturing it requires an **EC2 describe call** — which would mean either importing an AWS SDK (breaking the AWS-SDK-free property) or adding yet another delegated CLI collector. Flagged, not hacked around. Until then, PMapper enables *identity-to-identity* multi-hop chains; instance→role attachment remains the honest boundary.
 
 ---
 
 ## Honest limitations
 
-- v1 is **toxic-combination detection**, not full attack-graph analysis — label it so in the UI; PMapper (v2) is what makes chains real.
+- v1 (Prowler-only) is **toxic-combination detection**, not full attack-graph analysis. PMapper (AP-5) adds authoritative **identity** multi-hop chains; EC2 instance→role attachment is still a gap (see Scope boundary).
 - The LLM narrates computed paths only; never let it generate the path.
 - `holds_data` sensitivity is a type-based heuristic; the narrative must hedge.
 - Keep the LLM to the top-N paths to bound CPU latency (same constraint as the main analysis).

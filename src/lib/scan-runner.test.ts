@@ -15,9 +15,12 @@ import {
   createScan,
   getScan,
   getFindingsForScan,
+  getGraph,
+  getAttackPaths,
 } from "@/lib/db/repository";
 import { executeScan, type ScanRunnerDeps } from "@/lib/scan-runner";
 import type { ProwlerScanOptions } from "@/lib/prowler";
+import type { ParsedGraph } from "@/lib/graph/pmapper-parse";
 
 const fixtureUrl = new URL("./__fixtures__/sample.ocsf.json", import.meta.url);
 const fixtureText = readFileSync(fixtureUrl, "utf8");
@@ -140,4 +143,104 @@ test("base environment: no assume-role, Prowler gets null role", async () => {
   assert.equal(flags.assumeCalled, false, "base mode must not assume a role");
   assert.equal(flags.opts?.roleArn, null);
   assert.equal(getScan(scan.id)?.status, "done");
+});
+
+/* ----------------------------- AP-5: PMapper gate ------------------------- */
+
+const ADMIN_ARN = "arn:aws:iam::946445279593:role/parapet-mh-admin-role";
+const USER_ARN = "arn:aws:iam::946445279593:user/cspm-test-user";
+
+function fakePmapperGraph(): ParsedGraph {
+  return {
+    nodes: [
+      {
+        nodeKey: `iam_user:${USER_ARN}`,
+        type: "iam_user",
+        name: "cspm-test-user",
+        region: null,
+        accountId: "946445279593",
+        capabilities: [],
+        source: "pmapper",
+      },
+      {
+        nodeKey: `iam_role:${ADMIN_ARN}`,
+        type: "iam_role",
+        name: "parapet-mh-admin-role",
+        region: null,
+        accountId: "946445279593",
+        capabilities: ["privileged"],
+        source: "pmapper",
+      },
+    ],
+    edges: [
+      {
+        srcKey: `iam_user:${USER_ARN}`,
+        dstKey: `iam_role:${ADMIN_ARN}`,
+        relation: "can_assume",
+        evidence: { reason: "can access via sts:AssumeRole" },
+        source: "pmapper",
+      },
+    ],
+  };
+}
+
+test("PMAPPER_ENABLED off (default): PMapper is not invoked and the graph is v1 (Prowler-only)", async () => {
+  delete process.env.PMAPPER_ENABLED;
+  const env = createEnvironment({ name: "PmOff" });
+  const scan = createScan(env.id);
+
+  let pmapperCalled = false;
+  await executeScan(scan.id, env, {
+    runProwler: async () => "/tmp/off.ocsf.json",
+    readOcsf: async () => fixtureText,
+    runPmapper: async () => {
+      pmapperCalled = true;
+      return fakePmapperGraph();
+    },
+  });
+
+  assert.equal(pmapperCalled, false, "PMapper must not run when disabled");
+  const graph = getGraph(scan.id);
+  // Fixture has no IAM identity edges -> 0 edges, no escalation chain.
+  assert.equal(graph.edges.length, 0);
+  assert.equal(
+    getAttackPaths(scan.id).some((p) => p.ruleId === "privilege-escalation-chain"),
+    false,
+  );
+});
+
+test("PMAPPER_ENABLED on: PMapper edges merge and an identity escalation chain is persisted", async () => {
+  process.env.PMAPPER_ENABLED = "true";
+  try {
+    const env = createEnvironment({ name: "PmOn" });
+    const scan = createScan(env.id);
+
+    let pmapperCalled = false;
+    await executeScan(scan.id, env, {
+      runProwler: async () => "/tmp/on.ocsf.json",
+      readOcsf: async () => fixtureText,
+      runPmapper: async () => {
+        pmapperCalled = true;
+        return fakePmapperGraph();
+      },
+    });
+
+    assert.equal(pmapperCalled, true, "PMapper runs when enabled");
+    const graph = getGraph(scan.id);
+    // The PMapper can_assume edge merged into the persisted graph.
+    assert.ok(
+      graph.edges.some((e) => e.relation === "can_assume" && e.source === "pmapper"),
+      "merged graph should contain the PMapper can_assume edge",
+    );
+    // The path engine found the real identity multi-hop chain.
+    const chain = getAttackPaths(scan.id).find(
+      (p) => p.ruleId === "privilege-escalation-chain",
+    );
+    assert.ok(chain, "expected a privilege-escalation-chain path");
+    assert.equal(chain.confidence, "high");
+    assert.equal(chain.entryKey, `iam_user:${USER_ARN}`);
+    assert.equal(chain.targetKey, `iam_role:${ADMIN_ARN}`);
+  } finally {
+    delete process.env.PMAPPER_ENABLED;
+  }
 });

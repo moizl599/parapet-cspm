@@ -22,9 +22,20 @@ export type Capability =
   | "unencrypted"
   | "weak_auth"
   | "credential_exposure"
-  | "logging_blind";
+  | "logging_blind"
+  /** PMapper (AP-5): a privileged role whose trust allows broad principals. */
+  | "wildcard_trust";
 
-export type EdgeRelation = "uses_role" | "in_security_group";
+/** Prowler-derived relations (uses_role/in_security_group) + PMapper IAM
+ *  relations (can_assume/can_access). */
+export type EdgeRelation =
+  | "uses_role"
+  | "in_security_group"
+  | "can_assume"
+  | "can_access";
+
+/** Which scanner produced a node/edge. */
+export type GraphSource = "prowler" | "pmapper";
 
 export interface GraphNode {
   /** Stable: normalized type + resource id. */
@@ -34,15 +45,16 @@ export interface GraphNode {
   region: string | null;
   accountId: string | null;
   capabilities: Capability[];
-  source: "prowler";
+  source: GraphSource;
 }
 
 export interface GraphEdge {
   srcKey: string;
   dstKey: string;
   relation: EdgeRelation;
-  evidence: { checkId?: string; title?: string };
-  source: "prowler";
+  /** Finding (Prowler) or PMapper fact that produced this edge. */
+  evidence: { checkId?: string; title?: string; reason?: string };
+  source: GraphSource;
 }
 
 export interface GraphBuildResult {
@@ -128,6 +140,9 @@ const CAP_RULES: CapRule[] = [
       /^iam_.*administrator/.test(checkId) ||
       checkId === "iam_policy_allows_privilege_escalation" ||
       /full_administrative_privileges/.test(checkId) ||
+      // Prowler's actual wording for "admin policy" checks, e.g.
+      // iam_aws_attached_policy_no_administrative_privileges.
+      /administrative_privileges/.test(checkId) ||
       /privilege_escalation/.test(checkId) ||
       /root_account/.test(checkId),
   },

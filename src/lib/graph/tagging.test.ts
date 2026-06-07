@@ -263,3 +263,33 @@ test("weak_auth is scoped to identity checks (no S3 MFA-delete / CloudWatch metr
     false,
   );
 });
+
+test("privileged matches Prowler's administrative_privileges wording", () => {
+  const capsFor = (checkId: string, resourceType: string, resourceId: string) => {
+    const { nodes } = buildGraph([mk({ checkId, resourceType, resourceId })]);
+    return nodes[0]?.capabilities ?? [];
+  };
+
+  // Prowler's actual admin-policy check wording -> privileged.
+  assert.ok(
+    capsFor(
+      "iam_aws_attached_policy_no_administrative_privileges",
+      "AwsIamPolicy",
+      "arn:aws:iam::aws:policy/AdministratorAccess",
+    ).includes("privileged"),
+  );
+  // Existing admin/root patterns still tag privileged.
+  assert.ok(
+    capsFor("iam_role_administrator_access_policy", "AwsIamRole", "role/admin").includes(
+      "privileged",
+    ),
+  );
+
+  // A benign MFA check must NOT tag privileged.
+  assert.equal(
+    capsFor("iam_user_mfa_enabled_console_access", "AwsIamUser", "user/a").includes(
+      "privileged",
+    ),
+    false,
+  );
+});

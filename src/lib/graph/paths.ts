@@ -71,6 +71,11 @@ function isDatabaseType(type: string): boolean {
   );
 }
 
+/** An IAM identity node (user/role/group/root) — the start of escalation chains. */
+function isIdentity(n: PathNode): boolean {
+  return /^iam_/.test(n.type);
+}
+
 function displayName(n: PathNode | undefined): string {
   return n?.name ?? n?.nodeKey ?? "unknown";
 }
@@ -91,6 +96,13 @@ interface RelationalRule {
   title: string;
   entry: (n: PathNode) => boolean;
   target: (n: PathNode) => boolean;
+  /**
+   * Traverse edges following their direction (src → dst) only. Used for IAM
+   * escalation where direction is meaningful ("A can_assume B" ≠ "B can_assume
+   * A"). Default false = undirected (e.g. an exposed SG must reach the instance
+   * it's attached to and onward to that instance's role).
+   */
+  directed?: boolean;
 }
 type Rule = SingleRule | RelationalRule;
 
@@ -112,13 +124,26 @@ const RULES: Rule[] = [
     target: (n) => has(n, "privileged"),
   },
   {
-    // Dormant until trust-policy data exists (a `wildcard_trust` signal from a
-    // future finding/PMapper, AP-5). Encoded now so it lights up automatically.
+    // Activated by PMapper (AP-5): fires when PMapper reports a privileged role
+    // whose trust policy allows a broad/wildcard principal (`wildcard_trust`).
+    // With Prowler-only data this stays dormant (no `wildcard_trust` signal).
     kind: "single",
     id: "wildcard-trust-admin-role",
     severity: "critical",
     title: "Admin role with wildcard trust",
     predicate: (n) => has(n, "privileged") && has(n, "wildcard_trust"),
+  },
+  {
+    // PMapper-enabled identity multi-hop (AP-5): an IAM identity that can
+    // assume / access its way to a privileged identity over real IAM edges.
+    // Directed traversal — escalation follows edge direction (A can_assume B).
+    kind: "relational",
+    id: "privilege-escalation-chain",
+    severity: "high",
+    title: "Identity can escalate to a privileged role",
+    entry: (n) => isIdentity(n),
+    target: (n) => has(n, "privileged"),
+    directed: true,
   },
   {
     kind: "single",
@@ -152,9 +177,10 @@ const RULES: Rule[] = [
 
 /* ------------------------------ graph traversal --------------------------- */
 
-/** Undirected adjacency: each stored edge is walkable in both directions. */
+/** Adjacency over edges. `directed` walks src → dst only; otherwise both ways. */
 function buildAdjacency(
   edges: PathEdge[],
+  directed: boolean,
 ): Map<string, { to: string; edge: PathEdge }[]> {
   const adj = new Map<string, { to: string; edge: PathEdge }[]>();
   const add = (from: string, to: string, edge: PathEdge) => {
@@ -164,7 +190,7 @@ function buildAdjacency(
   };
   for (const e of edges) {
     add(e.srcKey, e.dstKey, e);
-    add(e.dstKey, e.srcKey, e); // undirected
+    if (!directed) add(e.dstKey, e.srcKey, e);
   }
   return adj;
 }
@@ -232,7 +258,8 @@ export function buildAttackPaths(
   edges: PathEdge[],
 ): AttackPath[] {
   const nodeByKey = new Map(nodes.map((n) => [n.nodeKey, n]));
-  const adj = buildAdjacency(edges);
+  const undirectedAdj = buildAdjacency(edges, false);
+  const directedAdj = buildAdjacency(edges, true);
   const byKey = new Map<string, AttackPath>();
 
   const dedupeKey = (p: AttackPath) =>
@@ -259,6 +286,7 @@ export function buildAttackPaths(
         });
       }
     } else {
+      const adj = rule.directed ? directedAdj : undirectedAdj;
       for (const entry of nodes) {
         if (!rule.entry(entry)) continue;
         const found = shortestPathToTarget(

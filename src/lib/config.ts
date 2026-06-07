@@ -66,3 +66,12 @@ export function getAwsCredentials(): AwsCredentials {
 
   return { accessKeyId, secretAccessKey, region };
 }
+
+/**
+ * Whether the optional PMapper IAM-graph scanner (AP-5) is enabled. Default OFF
+ * — v1 (Prowler-only) behavior is unchanged unless PMAPPER_ENABLED is truthy.
+ */
+export function isPmapperEnabled(): boolean {
+  const v = (process.env.PMAPPER_ENABLED ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes" || v === "on";
+}

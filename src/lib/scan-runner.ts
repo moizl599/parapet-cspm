@@ -14,11 +14,14 @@ import "server-only";
 import { promises as fs } from "node:fs";
 
 import { ensureAnalysis } from "@/lib/analysis-jobs";
+import { isPmapperEnabled } from "@/lib/config";
 import { normalizeFindings, summarizeFindings } from "@/lib/ocsf";
 import { runProwlerScan, type ProwlerScanOptions } from "@/lib/prowler";
+import { runPmapper } from "@/lib/pmapper";
 import { testAssumeRole, type AssumeRoleResult } from "@/lib/aws-test";
 import { buildGraph } from "@/lib/graph/tagging";
 import { buildAttackPaths } from "@/lib/graph/paths";
+import { mergeGraphs, type ParsedGraph } from "@/lib/graph/pmapper-parse";
 import {
   createScan,
   getEnvironment,
@@ -34,6 +37,8 @@ export interface ScanRunnerDeps {
   runProwler?: (scanId: string, opts: ProwlerScanOptions) => Promise<string>;
   assumeRole?: (roleArn: string, externalId: string) => Promise<AssumeRoleResult>;
   readOcsf?: (path: string) => Promise<string>;
+  /** PMapper IAM-graph collector (AP-5); only called when PMAPPER_ENABLED. */
+  runPmapper?: (scanId: string, opts: ProwlerScanOptions) => Promise<ParsedGraph>;
 }
 
 export interface StartedScan {
@@ -80,6 +85,7 @@ export async function executeScan(
   const runProwler = deps.runProwler ?? runProwlerScan;
   const assumeRole = deps.assumeRole ?? testAssumeRole;
   const readOcsf = deps.readOcsf ?? ((p: string) => fs.readFile(p, "utf8"));
+  const collectPmapper = deps.runPmapper ?? runPmapper;
 
   try {
     updateScanStatus(scanId, "running");
@@ -126,7 +132,31 @@ export async function executeScan(
     // never fail an otherwise-successful scan. Narrative is filled later (AP-3).
     try {
       const failed = findings.filter((f) => f.status === "fail");
-      const graph = buildGraph(failed);
+      let graph: ParsedGraph = buildGraph(failed);
+
+      // AP-5: optionally merge PMapper's authoritative IAM identity edges
+      // (can_assume / can_access) BEFORE the path engine, so identity multi-hop
+      // chains become real. Gated by PMAPPER_ENABLED (default off → v1 graph).
+      if (isPmapperEnabled()) {
+        try {
+          const pm = await collectPmapper(scanId, {
+            roleArn: environment.authMode === "role" ? environment.roleArn : null,
+            externalId:
+              environment.authMode === "role" ? environment.externalId : null,
+            regions: environment.regions,
+          });
+          graph = mergeGraphs(graph, pm);
+          console.log(
+            `[scan ${scanId}] pmapper: +${pm.nodes.length} node(s), +${pm.edges.length} edge(s).`,
+          );
+        } catch (pmErr: unknown) {
+          console.warn(
+            `[scan ${scanId}] pmapper skipped:`,
+            pmErr instanceof Error ? pmErr.message : String(pmErr),
+          );
+        }
+      }
+
       saveGraph(scanId, graph.nodes, graph.edges);
       const paths = buildAttackPaths(graph.nodes, graph.edges);
       saveAttackPaths(scanId, paths);
